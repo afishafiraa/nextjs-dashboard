@@ -4,20 +4,11 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Layout from '../../../components/Layout';
 import PatientDetailTabs from '../../../components/PatientDetailTabs';
-import { fetchSheetData, updateSheetData } from '../../../lib/googleSheets';
+import { RegistrationData } from '../../../lib/sections/personal.sheet';
+import LoadingModal from '@/components/ui/LoadingModal';
 
-// TypeScript interfaces
-interface Patient {
-  id: number;
-  nama_anak: string;
-  nama_ibu: string;
-  tanggal_lahir: string;
-  jenis_kelamin: string;
-  nama_puskesmas: string;
-  tanggal_kunjungan: string;
-  status_gizi: string;
-  created_at: string;
-}
+// Use the same interface as defined in personal-sheet.ts
+interface Patient extends RegistrationData {}
 
 interface SectionData {
   [key: string]: any;
@@ -34,128 +25,153 @@ const SECTIONS = {
   CLINICAL_EXAMINATION: 'clinical_examination'
 };
 
-// Mock data for development - remove when Google Sheets API is implemented
-const mockPatientData: { [key: string]: Patient } = {
-  '1': {
-    id: 1,
-    nama_anak: 'Ahmad Rizki',
-    nama_ibu: 'Siti Aminah',
-    tanggal_lahir: '2023-06-15',
-    jenis_kelamin: 'Laki-laki',
-    nama_puskesmas: 'Puskesmas Kecamatan A',
-    tanggal_kunjungan: '2024-01-15',
-    status_gizi: 'Normal',
-    created_at: '2024-01-15'
-  },
-  '2': {
-    id: 2,
-    nama_anak: 'Fatimah Zahra',
-    nama_ibu: 'Nur Halimah',
-    tanggal_lahir: '2023-07-20',
-    jenis_kelamin: 'Perempuan',
-    nama_puskesmas: 'Puskesmas Kecamatan B',
-    tanggal_kunjungan: '2024-01-20',
-    status_gizi: 'Kurang',
-    created_at: '2024-01-20'
-  },
-  '3': {
-    id: 3,
-    nama_anak: 'Muhammad Alif',
-    nama_ibu: 'Dewi Sartika',
-    tanggal_lahir: '2023-05-10',
-    jenis_kelamin: 'Laki-laki',
-    nama_puskesmas: 'Puskesmas Kecamatan C',
-    tanggal_kunjungan: '2024-01-25',
-    status_gizi: 'Normal',
-    created_at: '2024-01-25'
-  }
+// Empty template for new patient
+const newPatientTemplate: Patient = {
+  id: '',
+  nama_anak: '',
+  jenis_kelamin: '',
+  tanggal_lahir: '',
+  usia_gestasi: '',
+  no_kohort_bayi: '',
+  nik_ibu: '',
+  nik_anak: '',
+  nama_ibu: '',
+  nama_bapak: '',
+  pekerjaan_ibu: '',
+  pekerjaan_bapak: '',
+  no_hp_ibu: '',
+  no_hp_bapak: '',
+  pendamping: '',
+  alamat: '',
+  catatan: '',
+  created_at: '',
+  updated_at: '',
+  tanggal_kunjungan: ''
 };
 
 export default function PatientDetailPage() {
   const router = useRouter();
   const params = useParams();
   const patientId = params.id as string;
+  const isNewPatient = patientId === 'new';
   
   const [patient, setPatient] = useState<Patient | null>(null);
   const [activeSection, setActiveSection] = useState(SECTIONS.REGISTRATIONS);
   const [loading, setLoading] = useState(true);
   const [sectionData, setSectionData] = useState<SectionData>({});
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // Add new modal states
+  const [showModal, setShowModal] = useState(false);
+  const [modalType, setModalType] = useState<'loading' | 'success' | 'error' >('loading');
+  const [modalMessage, setModalMessage] = useState('');
 
   const fetchPatientData = async () => {
     try {
       setLoading(true);
       
-      // For development: use mock data
-      // Replace this with actual Google Sheets API call when ready
-      const patientData = mockPatientData[patientId] || null;
-      setPatient(patientData);
-      
-      // Mock section data - replace with actual API calls
-      const allSectionData: SectionData = {
-        immunizations: {
-          bcg: '2023-07-01',
-          hepatitis_b: '2023-07-15',
-          dpt_1: '2023-08-15',
-          polio_1: '2023-08-15'
-        },
-        nutrition: {
-          asi_eksklusif: 'ya',
-          mpasi_start: '2023-12-15',
-          status_gizi: 'normal'
-        },
-        anthropometry: {
-          berat_badan: '8.5',
-          tinggi_badan: '70.5',
-          lingkar_kepala: '44.2'
-        }
-      };
-      
-      setSectionData(allSectionData);
-      
-      /* 
-      // Uncomment when Google Sheets API is ready:
-      
-      // Fetch patient basic info from registrations sheet
-      const patientData = await fetchSheetData('registrations', patientId);
-      setPatient(patientData);
-      
-      // Fetch all section data
-      const allSectionData = {};
-      for (const section of Object.values(SECTIONS)) {
-        if (section !== 'registrations') {
-          allSectionData[section] = await fetchSheetData(section, patientId);
+      if (isNewPatient) {
+        // Initialize new patient with empty template
+        setPatient(newPatientTemplate);
+        setSectionData({
+          registrations: newPatientTemplate,
+          immunizations: {},
+          nutrition: {},
+          anthropometry: {}
+        });
+      } else {
+        // Fetch existing patient data from API
+        const response = await fetch(`/api/personal/${patientId}`);
+        if (response.ok) {
+          const patientData = await response.json();
+          setPatient(patientData);
+          
+          // Fetch all section data
+          const allSectionData: SectionData = {
+            registrations: patientData,
+            immunizations: {},
+            nutrition: {},
+            anthropometry: {}
+          };
+          
+          // TODO: Fetch data for other sections when APIs are ready
+          setSectionData(allSectionData);
+        } else {
+          setPatient(null);
         }
       }
-      setSectionData(allSectionData);
-      */
       
     } catch (error) {
       console.error('Error fetching patient data:', error);
+      setPatient(null);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (patientId) {
-      fetchPatientData();
-    }
+    fetchPatientData();
   }, [patientId]);
 
   const updateSectionData = async (section: string, data: any) => {
     try {
-      // For development: just update local state
-      // Replace with actual Google Sheets API call when ready
-      setSectionData(prev => ({
-        ...prev,
-        [section]: data
-      }));
+      setIsSaving(true);
+      setShowModal(true);
+      setModalType('loading');
+      setModalMessage('Menyimpan...');
       
-      alert('Data berhasil diperbarui!');
-      
-      /* 
-      // Uncomment when Google Sheets API is ready:
-      await updateSheetData(section, patientId, data);
+      if (section === 'registrations') {
+        if (isNewPatient) {
+          // Create new patient
+          const response = await fetch('/api/personal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          });
+          
+          if (response.ok) {
+            const newPatient = await response.json();
+            
+            // Show success modal
+            setModalType('success');
+            setModalMessage('Pasien baru berhasil ditambahkan!');
+            
+            // Auto close modal and redirect after 2 seconds
+            setTimeout(() => {
+              setShowModal(false);
+              router.push(`/patients/${newPatient.id}`);
+            }, 2000);
+            return;
+          } else {
+            setShowModal(true);
+            setModalType('error');
+            setModalMessage('Gagal menambahkan pasien. Silahkan coba lagi.');
+            throw new Error('Failed to create patient');
+          }
+        } else {
+          // Update existing patient
+          const response = await fetch(`/api/personal/${patientId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          });
+          
+          if (!response.ok) {
+            throw new Error('Failed to update patient');
+          }
+        }
+      } else {
+        // Update other sections
+        const response = await fetch(`/api/${section}/${patientId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to update ${section}`);
+        }
+      }
       
       // Update local state
       setSectionData(prev => ({
@@ -163,12 +179,27 @@ export default function PatientDetailPage() {
         [section]: data
       }));
       
-      alert('Data berhasil diperbarui!');
-      */
+      if (section === 'registrations') {
+        setPatient(data);
+      }
+      
+      // Show success modal
+      setModalType('success');
+      setModalMessage('Berhasil Menyimpan');
+      
+      // Auto close modal after 2 seconds
+      setTimeout(() => {
+        setShowModal(false);
+      }, 2000);
       
     } catch (error) {
       console.error('Error updating data:', error);
-      alert('Gagal memperbarui data. Silakan coba lagi.');
+      setShowModal(true);
+      setModalType('error');
+      setModalMessage('Gagal memperbarui data. Silahkan coba lagi.');
+    //   alert('Gagal memperbarui data. Silakan coba lagi.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -183,7 +214,7 @@ export default function PatientDetailPage() {
     );
   }
 
-  if (!patient) {
+  if (!patient && !isNewPatient) {
     return (
       <Layout title="Patient Not Found">
         <div className="text-center py-12">
@@ -199,11 +230,13 @@ export default function PatientDetailPage() {
     );
   }
 
+  const pageTitle = isNewPatient ? 'Tambah Pasien Baru' : `Detail Pasien - ${patient?.nama_anak || 'Unknown'}`;
+
   return (
-    <Layout title={`Detail Pasien - ${patient.nama_anak || 'Unknown'}`}>
+    <Layout title={pageTitle}>
       <div className="space-y-6">
         {/* Back Button */}
-        <div className="flex items-center">
+        <div className="flex items-center justify-between">
           <button
             onClick={() => router.push('/')}
             className="flex items-center text-blue-600 hover:text-blue-800 font-medium"
@@ -212,17 +245,24 @@ export default function PatientDetailPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
             Kembali ke Daftar Pasien
-          </button>
+          </button> 
         </div>
 
         {/* Patient Header Info */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">{patient.nama_anak}</h1>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600">
-            <div><strong>Nama Ibu:</strong> {patient.nama_ibu}</div>
-            <div><strong>Tanggal Lahir:</strong> {patient.tanggal_lahir}</div>
-            <div><strong>Jenis Kelamin:</strong> {patient.jenis_kelamin}</div>
-          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            {isNewPatient ? 'Pasien Baru' : patient?.nama_anak || 'Nama Belum Diisi'}
+          </h1>
+          {!isNewPatient && patient && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600">
+              <div><strong>Nama Ibu:</strong> {patient.nama_ibu || '-'}</div>
+              <div><strong>Tanggal Lahir:</strong> {patient.tanggal_lahir ? new Date(patient.tanggal_lahir).toLocaleDateString('id-ID', {day: '2-digit', month:'2-digit', year: 'numeric'}).split('/').join('-') : '-'}</div>
+              <div><strong>Jenis Kelamin:</strong> {patient.jenis_kelamin || '-'}</div>
+              <div><strong>NIK Anak:</strong> {patient.nik_anak || '-'}</div>
+              <div><strong>No. Kohort:</strong> {patient.no_kohort_bayi || '-'}</div>
+              <div><strong>Alamat:</strong> {patient.alamat || '-'}</div>
+            </div>
+          )}
         </div>
 
         {/* Tabbed Sections */}
@@ -233,8 +273,20 @@ export default function PatientDetailPage() {
           sectionData={sectionData}
           onUpdateSection={updateSectionData}
           patientId={patientId}
+          isNewPatient={isNewPatient}
+          isSaving={isSaving}
         />
       </div>
+
+      {/* Modal Alert */}
+      {showModal && (
+        <LoadingModal
+          isVisible={showModal}
+          type={modalType}
+          message={modalMessage}
+          onClose={modalType === 'success' ? () => setShowModal(false) : undefined}
+        />
+      )}
     </Layout>
   );
 }
